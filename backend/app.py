@@ -365,5 +365,81 @@ def get_user_anomalies(current_user):
     for a in anoms: a['_id'] = str(a['_id'])
     return jsonify(anoms)
 
+@app.route('/api/readings/submit', methods=['POST'])
+def submit_reading():
+    data = request.json
+    meter_id = data.get('meter_id')
+    load = data.get('load')
+    if not meter_id or load is None:
+        return jsonify({'message': 'Missing meter_id or load'}), 400
+        
+    timestamp = datetime.utcnow()
+    
+    from ai_engine import ai_engine
+    active_appliances = ai_engine.recognize_appliances(load)
+    
+    new_reading = {
+        'meter_id': meter_id,
+        'timestamp': timestamp,
+        'load': float(load),
+        'active_appliances': active_appliances
+    }
+    
+    if not USE_MOCK:
+        db.readings.insert_one(new_reading)
+    else:
+        new_reading['_id'] = ObjectId()
+        mock_readings.insert(0, new_reading)
+        
+    is_anomaly = ai_engine.detect_anomaly(load)
+    if is_anomaly:
+        district = "Unknown"
+        if not USE_MOCK:
+            user = db.users.find_one({'meter_id': meter_id})
+            if user:
+                district = user.get('district', 'Unknown')
+        else:
+            user = next((u for u in mock_users if u.get('meter_id') == meter_id), None)
+            if user:
+                district = user.get('district', 'Unknown')
+                
+        anomaly_record = {
+            'meter_id': meter_id,
+            'timestamp': timestamp,
+            'type': 'Consumption Spike / Theft Attempt',
+            'severity': 'High',
+            'location': district
+        }
+        
+        if not USE_MOCK:
+            db.anomalies.insert_one(anomaly_record)
+            
+    return jsonify({
+        'message': 'Reading processed successfully',
+        'active_appliances': active_appliances,
+        'anomaly_detected': is_anomaly
+    })
+
+@app.route('/api/user/forecast', methods=['GET'])
+@token_required
+def get_user_forecast(current_user):
+    meter_id = current_user.get('meter_id')
+    if not meter_id:
+        return jsonify({'message': 'No meter assigned'}), 400
+        
+    if USE_MOCK:
+        history_readings = [r for r in mock_readings if r['meter_id'] == meter_id]
+    else:
+        history_readings = list(db.readings.find({'meter_id': meter_id}).sort('timestamp', 1))
+        
+    loads = [float(r['load']) for r in history_readings]
+    
+    from ai_engine import ai_engine
+    forecast_list = ai_engine.forecast_demand(loads)
+    
+    return jsonify({
+        'forecast': forecast_list
+    })
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

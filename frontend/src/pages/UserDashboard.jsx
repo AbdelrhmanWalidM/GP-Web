@@ -42,14 +42,15 @@ const UserDashboard = () => {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [readingsRes, billsRes, notifRes, anomRes, msgRes, profileRes, liveBillRes] = await Promise.all([
+      const [readingsRes, billsRes, notifRes, anomRes, msgRes, profileRes, liveBillRes, forecastRes] = await Promise.all([
         axios.get(`${API_BASE}/api/user/readings`, { headers }),
         axios.get(`${API_BASE}/api/user/billing`, { headers }),
         axios.get(`${API_BASE}/api/notifications`, { headers }),
         axios.get(`${API_BASE}/api/user/anomalies`, { headers }),
         axios.get(`${API_BASE}/api/messages`, { headers }),
         axios.get(`${API_BASE}/api/user/profile`, { headers }),
-        axios.get(`${API_BASE}/api/user/bill/current`, { headers })
+        axios.get(`${API_BASE}/api/user/bill/current`, { headers }),
+        axios.get(`${API_BASE}/api/user/forecast`, { headers }).catch(e => ({ data: { forecast: [] } }))
       ]);
 
       setReadings(readingsRes.data);
@@ -63,11 +64,15 @@ const UserDashboard = () => {
       // Update stats based on real data
       if (readingsRes.data.length > 0) {
         const latest = readingsRes.data[0];
+        const nextHourForecast = (forecastRes.data && forecastRes.data.forecast && forecastRes.data.forecast.length > 0)
+          ? forecastRes.data.forecast[0]
+          : 0;
         setStats(prev => ({
           ...prev,
           current_load: latest.load,
           active_appliances: latest.active_appliances || [],
-          anomaly_detected: anomRes.data.length > 0
+          anomaly_detected: anomRes.data.length > 0,
+          forecast_next_hour: nextHourForecast
         }));
       }
     } catch (err) {
@@ -184,6 +189,14 @@ const UserDashboard = () => {
 
               <div className="glass-card" style={{ minWidth: '280px', flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <Cpu color="var(--primary)" size={24} />
+                  <h3 style={{ color: 'var(--text-muted)' }}>Forecast (Next Hour)</h3>
+                </div>
+                <p style={{ fontSize: '2.5rem', fontWeight: 800 }}>{n(stats.forecast_next_hour)} <span style={{ fontSize: '1rem', fontWeight: 400 }}>{t('kw')}</span></p>
+              </div>
+
+              <div className="glass-card" style={{ minWidth: '280px', flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
                   <CreditCard color="var(--accent)" size={24} />
                   <h3 style={{ color: 'var(--text-muted)' }}>{t('latestBill')}</h3>
                 </div>
@@ -193,7 +206,7 @@ const UserDashboard = () => {
                 </button>
               </div>
 
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: '280px', flex: 1 }}>
                 <Leaf color="var(--secondary)" size={32} />
                 <div>
                   <h3 style={{ color: 'var(--text-muted)' }}>Eco Score</h3>

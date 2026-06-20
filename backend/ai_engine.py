@@ -95,12 +95,11 @@ class AIEngine:
             return True if pred[0] == -1 else False
 
     def forecast_demand(self, history):
-        """Forecast demand for next hour/sequence. If history is available, run prediction."""
+        """Forecast demand for next 168 hours. If history is available, run prediction."""
         if not self.models_loaded or len(history) < 168:
             # Fallback to simple average if not enough history
-            if len(history) < 3:
-                return 1.2
-            return np.mean(history[-3:]) + np.random.normal(0, 0.05)
+            base_load = np.mean(history[-3:]) if len(history) >= 3 else 1.2
+            return [float(base_load + np.random.normal(0, 0.05)) for _ in range(168)]
             
         try:
             # Prepare df_input format
@@ -143,12 +142,11 @@ class AIEngine:
             reconstructed[:, 0] = pred_scaled
             
             pred = self.forecast_scaler.inverse_transform(reconstructed)[:, 0]
-            return float(pred[0])
+            return [float(val) for val in pred]
         except Exception as e:
             print(f"Forecast prediction failed: {e}. Falling back to simple forecast.")
-            if len(history) < 3:
-                return 1.2
-            return np.mean(history[-3:]) + np.random.normal(0, 0.05)
+            base_load = np.mean(history[-3:]) if len(history) >= 3 else 1.2
+            return [float(base_load + np.random.normal(0, 0.05)) for _ in range(168)]
 
     def recognize_appliances(self, total_load):
         """
