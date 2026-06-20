@@ -1,4 +1,6 @@
+# Force-rebuild to apply database change
 FROM python:3.11-slim
+
 
 WORKDIR /app
 
