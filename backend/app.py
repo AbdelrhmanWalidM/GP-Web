@@ -91,23 +91,62 @@ def token_required(f):
     decorated.__name__ = f.__name__
     return decorated
 
-# Egyptian Electricity Tiers (in EGP)
+# Egyptian Electricity Tiers (in EGP) - 2026 Cumulative Tariff
 def calculate_bill_amount(kwh):
-    if kwh <= 50:
-        rate = 0.68
-    elif kwh <= 100:
-        rate = 0.78
-    elif kwh <= 200:
-        rate = 0.95
-    elif kwh <= 350:
-        rate = 1.55
-    elif kwh <= 650:
-        rate = 1.95
-    elif kwh <= 1000:
-        rate = 2.10
+    amount = 0
+    remaining_kwh = kwh
+    
+    # Tier 1: 0-50 kWh at 0.68 EGP
+    if remaining_kwh > 50:
+        amount += 50 * 0.68
+        remaining_kwh -= 50
     else:
-        rate = 2.23
-    return round(kwh * rate, 2)
+        amount += remaining_kwh * 0.68
+        return round(amount, 2)
+        
+    # Tier 2: 51-100 kWh (next 50) at 0.78 EGP
+    if remaining_kwh > 50:
+        amount += 50 * 0.78
+        remaining_kwh -= 50
+    else:
+        amount += remaining_kwh * 0.78
+        return round(amount, 2)
+        
+    # Tier 3: 101-200 kWh (next 100) at 0.95 EGP
+    if remaining_kwh > 100:
+        amount += 100 * 0.95
+        remaining_kwh -= 100
+    else:
+        amount += remaining_kwh * 0.95
+        return round(amount, 2)
+        
+    # Tier 4: 201-350 kWh (next 150) at 1.55 EGP
+    if remaining_kwh > 150:
+        amount += 150 * 1.55
+        remaining_kwh -= 150
+    else:
+        amount += remaining_kwh * 1.55
+        return round(amount, 2)
+        
+    # Tier 5: 351-650 kWh (next 300) at 1.95 EGP
+    if remaining_kwh > 300:
+        amount += 300 * 1.95
+        remaining_kwh -= 300
+    else:
+        amount += remaining_kwh * 1.95
+        return round(amount, 2)
+        
+    # Tier 6: 651-1000 kWh (next 350) at 2.10 EGP
+    if remaining_kwh > 350:
+        amount += 350 * 2.10
+        remaining_kwh -= 350
+    else:
+        amount += remaining_kwh * 2.10
+        return round(amount, 2)
+        
+    # Tier 7: over 1000 kWh at 2.58 EGP
+    amount += remaining_kwh * 2.58
+    return round(amount, 2)
 
 @app.route('/api/user/bill/current', methods=['GET'])
 @token_required
@@ -184,17 +223,18 @@ def get_anomalies(current_user):
     if USE_MOCK:
         # Guarantee anomalies in Mock Mode for demo purposes
         anomalies = [
-            {'meter_id': 'MTR-001', 'timestamp': datetime.utcnow() - timedelta(minutes=45), 'type': 'Consumption Spike', 'severity': 'High', 'location': 'District 4, Cluster X'},
-            {'meter_id': 'MTR-002', 'timestamp': datetime.utcnow() - timedelta(hours=2), 'type': 'Potential Leakage', 'severity': 'Medium', 'location': 'District 1, Cluster Z'},
-            {'meter_id': 'MTR-003', 'timestamp': datetime.utcnow() - timedelta(hours=5), 'type': 'Meter Tampering', 'severity': 'High', 'location': 'District 7, Cluster Y'},
-            {'meter_id': 'MTR-001', 'timestamp': datetime.utcnow() - timedelta(hours=12), 'type': 'Voltage Drop', 'severity': 'Low', 'location': 'District 4, Cluster X'},
-            {'meter_id': 'MTR-002', 'timestamp': datetime.utcnow() - timedelta(days=1), 'type': 'Backfeeding', 'severity': 'Medium', 'location': 'District 2, Cluster A'}
+            {'meter_id': 'MTR-001', 'timestamp': datetime.utcnow() - timedelta(minutes=45), 'type': 'Consumption Spike', 'severity': 'High', 'status': 'pending', 'location': 'District 4, Cluster X'},
+            {'meter_id': 'MTR-002', 'timestamp': datetime.utcnow() - timedelta(hours=2), 'type': 'Potential Leakage', 'severity': 'Medium', 'status': 'investigating', 'location': 'District 1, Cluster Z'},
+            {'meter_id': 'MTR-003', 'timestamp': datetime.utcnow() - timedelta(hours=5), 'type': 'Meter Tampering', 'severity': 'High', 'status': 'resolved', 'location': 'District 7, Cluster Y'},
+            {'meter_id': 'MTR-001', 'timestamp': datetime.utcnow() - timedelta(hours=12), 'type': 'Voltage Drop', 'severity': 'Low', 'status': 'pending', 'location': 'District 4, Cluster X'},
+            {'meter_id': 'MTR-002', 'timestamp': datetime.utcnow() - timedelta(days=1), 'type': 'Backfeeding', 'severity': 'Medium', 'status': 'resolved', 'location': 'District 2, Cluster A'}
         ]
     else:
         anomalies = list(db.anomalies.find().sort('timestamp', -1).limit(50))
     
     for a in anomalies:
         if '_id' in a: a['_id'] = str(a['_id'])
+        if 'status' not in a: a['status'] = 'pending'
     return jsonify(anomalies)
 
 @app.route('/api/admin/customer/<meter_id>/readings', methods=['GET'])
@@ -362,7 +402,9 @@ def get_user_anomalies(current_user):
     meter_id = current_user.get('meter_id')
     if USE_MOCK: return jsonify([])
     anoms = list(db.anomalies.find({'meter_id': meter_id}).sort('timestamp', -1))
-    for a in anoms: a['_id'] = str(a['_id'])
+    for a in anoms:
+        a['_id'] = str(a['_id'])
+        if 'status' not in a: a['status'] = 'pending'
     return jsonify(anoms)
 
 @app.route('/api/readings/submit', methods=['POST'])
@@ -408,6 +450,7 @@ def submit_reading():
             'timestamp': timestamp,
             'type': 'Consumption Spike / Theft Attempt',
             'severity': 'High',
+            'status': 'pending',
             'location': district
         }
         
@@ -440,6 +483,83 @@ def get_user_forecast(current_user):
     return jsonify({
         'forecast': forecast_list
     })
+
+@app.route('/api/admin/anomaly/<anomaly_id>/dispatch', methods=['POST'])
+@token_required
+def dispatch_technician(current_user, anomaly_id):
+    if current_user['role'] != 'admin':
+        return jsonify({'message': 'Unauthorized'}), 403
+        
+    if USE_MOCK:
+        return jsonify({'message': 'Technician dispatched (Mock)'})
+        
+    anomaly = db.anomalies.find_one({'_id': ObjectId(anomaly_id)})
+    if not anomaly:
+        return jsonify({'message': 'Anomaly not found'}), 404
+        
+    db.anomalies.update_one(
+        {'_id': ObjectId(anomaly_id)},
+        {'$set': {'status': 'investigating'}}
+    )
+    
+    notification = {
+        'target': anomaly['meter_id'],
+        'title': 'Technician Dispatched',
+        'message': f"A grid technician has been dispatched to investigate node {anomaly['meter_id']} in {anomaly.get('location', 'your area')} due to a security alert.",
+        'date': datetime.utcnow()
+    }
+    db.notifications.insert_one(notification)
+    
+    return jsonify({'message': 'Technician successfully dispatched and customer notified.'})
+
+@app.route('/api/admin/anomaly/<anomaly_id>/status', methods=['POST'])
+@token_required
+def update_anomaly_status(current_user, anomaly_id):
+    if current_user['role'] != 'admin':
+        return jsonify({'message': 'Unauthorized'}), 403
+        
+    data = request.json
+    status = data.get('status')
+    severity = data.get('severity')
+    
+    if not status:
+        return jsonify({'message': 'Status is required'}), 400
+        
+    if USE_MOCK:
+        return jsonify({'message': 'Status updated (Mock)'})
+        
+    update_data = {'status': status}
+    if severity:
+        update_data['severity'] = severity
+        
+    db.anomalies.update_one(
+        {'_id': ObjectId(anomaly_id)},
+        {'$set': update_data}
+    )
+    return jsonify({'message': 'Anomaly status updated successfully.'})
+
+@app.route('/api/admin/bill/<bill_id>/warn', methods=['POST'])
+@token_required
+def send_billing_warning(current_user, bill_id):
+    if current_user['role'] != 'admin':
+        return jsonify({'message': 'Unauthorized'}), 403
+        
+    if USE_MOCK:
+        return jsonify({'message': 'Warning sent (Mock)'})
+        
+    bill = db.billing.find_one({'_id': ObjectId(bill_id)})
+    if not bill:
+        return jsonify({'message': 'Bill not found'}), 404
+        
+    notification = {
+        'target': bill['meter_id'],
+        'title': 'Unpaid Bill Warning Notice',
+        'message': f"Warning: Your electricity bill for {bill['month']} of {bill['amount_due']} EGP is unpaid. Please pay immediately to prevent grid service suspension.",
+        'date': datetime.utcnow()
+    }
+    db.notifications.insert_one(notification)
+    
+    return jsonify({'message': 'Warning notice sent to citizen.'})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
